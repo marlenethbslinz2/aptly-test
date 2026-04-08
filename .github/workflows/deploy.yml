@@ -13,8 +13,11 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Install Aptly
@@ -23,30 +26,24 @@ jobs:
           sudo apt-get install -y aptly
 
       - name: Import GPG Key
+        # This will only work if you added the secret GPG_PRIVATE_KEY to GitHub
         run: |
-          # Decode the secret and import it into the runner's GPG keychain
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          fi
 
       - name: Initialize Aptly Repo
         run: |
-          # Create the repo
           aptly repo create -distribution="stable" -component="main" my-repo
           
-          # Add packages
+          # Ensure the packages folder exists and has your .deb files
           aptly repo add my-repo packages/
           
-          # Publish to a SPECIFIC prefix (the dot "." means root)
-          # This is the most important part!
+          # Publish to root
           aptly publish repo -batch -skip-signing=true my-repo .
           
-          # Clear and prepare public folder
-          rm -rf public
           mkdir -p public
-          
-          # Copy everything from aptly's internal public folder to our deployment folder
           cp -r ~/.aptly/public/* public/
-          
-          # List files for debugging
           ls -R public
 
       - name: Upload Pages Artifact
@@ -55,4 +52,5 @@ jobs:
           path: 'public'
 
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
