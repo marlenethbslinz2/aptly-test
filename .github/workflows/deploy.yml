@@ -27,20 +27,27 @@ jobs:
           # Decode the secret and import it into the runner's GPG keychain
           echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
 
-      - name: Initialize and Publish Repo
+      - name: Initialize Aptly Repo
         run: |
+          # Create the repo
           aptly repo create -distribution="stable" -component="main" my-repo
+          
+          # Add packages
           aptly repo add my-repo packages/
           
-          # Use GPG signing here. 
-          aptly publish repo -batch \
-            my-repo .
+          # Publish to a SPECIFIC prefix (the dot "." means root)
+          # This is the most important part!
+          aptly publish repo -batch -skip-signing=true my-repo .
           
+          # Clear and prepare public folder
+          rm -rf public
           mkdir -p public
+          
+          # Copy everything from aptly's internal public folder to our deployment folder
           cp -r ~/.aptly/public/* public/
           
-          # Copy public key to the root so users can download it
-          gpg --armor --export YOUR_KEY_ID > public/public-key.gpg
+          # List files for debugging
+          ls -R public
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
