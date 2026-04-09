@@ -1,0 +1,56 @@
+name: Deploy Debian Repo
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Aptly
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aptly
+
+      - name: Import GPG Key
+        # This will only work if you added the secret GPG_PRIVATE_KEY to GitHub
+        run: |
+          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
+            echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          fi
+
+      - name: Initialize Aptly Repo
+        run: |
+          aptly repo create -distribution="stable" -component="main" my-repo
+          
+          # Ensure the packages folder exists and has your .deb files
+          aptly repo add my-repo packages/
+          
+          # Publish to root
+          aptly publish repo -batch -skip-signing=true my-repo .
+          
+          mkdir -p public
+          cp -r ~/.aptly/public/* public/
+          ls -R public
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
