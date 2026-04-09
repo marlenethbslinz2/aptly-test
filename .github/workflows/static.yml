@@ -3,7 +3,7 @@ name: Deploy static content to Pages
 
 on:
   workflow_run:
-    workflows: ["Deploy Debian Repo"] other yml
+    workflows: ["deploy"] other yml
     types:
       - completed
 
