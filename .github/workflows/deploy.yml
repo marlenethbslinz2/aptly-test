@@ -4,20 +4,22 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch: # Allows manual run
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  build-and-deploy:
+  build-repo:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install Aptly
@@ -25,32 +27,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y aptly
 
-      - name: Import GPG Key
-        # This will only work if you added the secret GPG_PRIVATE_KEY to GitHub
-        run: |
-          if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
-            echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
-          fi
-
       - name: Initialize Aptly Repo
         run: |
+          # Create and publish the repo locally in the runner
           aptly repo create -distribution="stable" -component="main" my-repo
-          
-          # Ensure the packages folder exists and has your .deb files
           aptly repo add my-repo packages/
-          
-          # Publish to root
           aptly publish repo -batch -skip-signing=true my-repo .
           
+          # Prepare the public folder for deployment
           mkdir -p public
+          touch public/.nojekyll
           cp -r ~/.aptly/public/* public/
-          ls -R public
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'public'
+          path: 'public' # Only upload the generated repo files
 
+  deploy:
+    needs: build-repo # Ensures deploy runs AFTER build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
