@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch: # Allows manual run
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -25,27 +25,55 @@ jobs:
       - name: Install Aptly
         run: |
           sudo apt-get update
-          sudo apt-get install -y aptly
+          sudo apt-get install -y aptly gnupg
+
+      - name: Import GPG Key
+        run: |
+          # Import the private intermediate key from your GitHub Secrets
+          echo "${{ secrets.GPG_INTERMEDIATE_KEY }}" | gpg --batch --import
+          
+          # Tell GPG to trust this key so aptly doesn't hang
+          KEY_ID=$(gpg --list-secret-keys --with-colons | grep '^fpr' | head -n 1 | cut -d: -f10)
+          echo "$KEY_ID:6:" | gpg --batch --import-ownertrust
 
       - name: Initialize Aptly Repo
         run: |
-          # Create and publish the repo locally in the runner
+          # 1. Create the repository
           aptly repo create -distribution="stable" -component="main" my-repo
-          aptly repo add my-repo packages/
-          aptly publish repo -batch -skip-signing=true my-repo .
           
-          # Prepare the public folder for deployment
+          # 2. Add your pre-signed packages (pkg1, pkg2, and the keyring package)
+          aptly repo add my-repo packages/
+          
+          # 3. Publish and SIGN the metadata
+          # Change 'intermediate@test.com' to the actual email used in your key
+          aptly publish repo \
+            -batch \
+            -gpg-key="intermediate@test.com" \
+            -passphrase="${{ secrets.GPG_PASSPHRASE }}" \
+            my-repo .
+
+      - name: Prepare Public Folder
+        run: |
           mkdir -p public
           touch public/.nojekyll
+          
+          # Copy everything Aptly generated (dists/ and pool/ folders)
           cp -r ~/.aptly/public/* public/
+          
+          # Export the public key for users to download
+          # This creates the file that was previously giving you a 404
+          gpg --export --armor "intermediate@test.com" > public/intermediate.asc
+          
+          # Debug: List files so you can see them in the Action logs
+          ls -R public
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'public' # Only upload the generated repo files
+          path: 'public'
 
   deploy:
-    needs: build-repo # Ensures deploy runs AFTER build
+    needs: build-repo
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
